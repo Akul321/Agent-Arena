@@ -6,8 +6,6 @@ WORKDIR /fe
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
-# Tells next.config.mjs to emit a static `out/` directory.
-ENV STATIC_EXPORT=1
 RUN npm run build
 
 # ---------- Backend runtime ----------
