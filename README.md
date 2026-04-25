@@ -1,22 +1,22 @@
 # Agent Arena
 
-> Multi-agent market simulation. Heterogeneous agents — retail traders, hedge
-> funds, quants, a central bank — react to live financial news and to each
-> other inside a simulated market, producing prices, sentiment and narratives
-> you can watch unfold in real time.
+Multi-agent market simulation. Heterogeneous agents — retail traders, hedge
+funds, quants, a central bank — react to live financial news and to each
+other inside a simulated market. Prices, sentiment and per-agent reasoning
+unfold in real time on a Bloomberg-style dashboard.
 
-## 🚀 Live demo
+## Live demo
 
 | Host | What lives there | URL |
 | ---- | ---------------- | --- |
-| Render (full app) | Backend + UI in one container | <!-- RENDER_URL --> _add after first deploy_ |
-| Vercel (UI only)  | Frontend, talking to the Render backend | <!-- VERCEL_URL --> _add after first deploy_ |
+| Render | Backend + UI in one container | <https://agent-arena-yl7l.onrender.com> |
+| Vercel | Frontend on the CDN, talking to the Render backend | <https://agent-arena-beta.vercel.app> |
 
-Click either button below to spin up your own copy. No credit card, no keys.
+Render's free tier sleeps after ~15 minutes of inactivity, so the first
+request after a quiet period takes ~30 seconds to wake up. Subsequent
+requests are instant.
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Akul321/Agent-Arena)
-&nbsp;
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAkul321%2FAgent-Arena&root-directory=frontend&project-name=agent-arena&env=NEXT_PUBLIC_API_URL&envDescription=URL%20of%20the%20Agent%20Arena%20backend%20(Render)&envLink=https%3A%2F%2Fgithub.com%2FAkul321%2FAgent-Arena%23deploy)
+## Architecture
 
 ```
 news (RSS) ──► sentiment ──► event bus ──► agents ──► orders ──► market ──► tape
@@ -24,67 +24,118 @@ news (RSS) ──► sentiment ──► event bus ──► agents ──► or
                                    └────────────── feedback ◄───────┘
 ```
 
-## What you can do
+A single round of the simulation:
 
-- Pull live headlines from free RSS feeds (Yahoo Finance, Google News, CNBC),
-  ranked by sentiment + recency.
-- Click a headline to inject it into the arena and watch each agent react.
-- Type a custom event ("Fed cuts rates", "AAPL beats earnings") and see
-  price, sentiment and agent P&L respond.
-- Add / remove agents, swap strategies (momentum, mean-reversion, risk-off,
-  policy), tune their risk budget.
-- Replay any past simulation with full per-agent reasoning.
+1. An event arrives — either a clicked headline, a typed prompt, or an
+   automatic poll of the RSS feeds.
+2. The sentiment service scores it on `[-1, +1]` and assigns a magnitude
+   on `[0, 1]`.
+3. The market applies the shock: `price *= 1 + sentiment * magnitude * 0.008 + N(0, 0.0015)`.
+4. Each agent observes the post-shock snapshot (price, trend, vol, running
+   sentiment) plus the event itself, runs its strategy, and emits a
+   `(action, size, rationale)` decision.
+5. Net order flow is folded back into the price with a bounded impact
+   function: `price *= 1 + tanh(net_shares / 1500) * 0.005`. A single round
+   cannot dislocate the book by more than ~50 bps.
+6. Cash, position and P&L are settled per agent. The whole tick is appended
+   to the tape and persisted to SQLite for replay.
 
-## Tech
+## Agents
 
-- **Backend** — Python 3.11, FastAPI, SQLite, `feedparser`, `httpx`.
+All four roles inherit from `Agent` (`backend/app/agents/base.py`), which
+owns cash, position, P&L bookkeeping and a small `AgentMemory` of recent
+events. Strategies differ in how they react to the same observation.
+
+| Role | Strategy | Reads | Reacts to |
+| ---- | -------- | ----- | --------- |
+| Retail Trader | Momentum + sentiment chasing. Aggressive on strong headlines, prone to FOMO and stop-outs. | trend, event sentiment | latest headline |
+| Hedge Fund | Macro thesis. Sizes up when news aligns with running sentiment; fades extreme moves. | trend, vol, running sentiment | regime shifts |
+| Quant | Mean reversion against short-window trend; ignores narrative. | trend, vol | price dislocation |
+| Central Bank | Policy stance. Sells (tightens) into hot inflation prints, buys (eases) into growth scares. Asymmetric and slow. | running sentiment, event keywords | policy-relevant events |
+
+Each agent exposes a `risk_budget` you can tune from the dashboard. Agents
+can be added, removed or duplicated at runtime.
+
+## News + sentiment
+
+`backend/app/services/news_service.py` polls three free RSS feeds (Yahoo
+Finance, Google News finance, CNBC), de-duplicates on URL, and caches the
+merged set for 2 minutes. No API keys, no quotas.
+
+`backend/app/services/sentiment.py` runs a two-pass scorer:
+
+1. **Phrase pass** — finance-specific bigrams (`"rate cut"`, `"earnings beat"`,
+   `"dovish"`, `"hawkish"`, `"guidance lower"`, …) match first and dominate.
+   Without this, "Fed signals rate cuts as inflation cools" scores bearish
+   because both *cuts* and *inflation* are negative tokens in isolation.
+2. **Token pass** — a small lexicon scores any remaining content.
+
+Output is `(sentiment ∈ [-1, 1], magnitude ∈ [0, 1])`. Strong enough to
+move the simulation; deliberately not an LLM.
+
+## Market
+
+`backend/app/simulation/market.py` keeps `price`, `sentiment`, a rolling
+tape (capped, `deque(maxlen=…)`) and derived observables:
+
+- `trend()` — log-return over the last 20 ticks, clipped to `[-1, 1]`.
+- `volatility()` — rolling stdev of log-returns.
+- `apply_shock(sentiment, magnitude)` — instantaneous news reaction.
+- `apply_flow(net_shares)` — bounded order-flow impact (`tanh`-saturated).
+
+## Tech stack
+
+- **Backend** — Python 3.11, FastAPI, Pydantic, SQLite, `feedparser`, `httpx`.
 - **Frontend** — Next.js 14 (App Router, static export), TailwindCSS, Recharts.
-- **Packaging** — single Docker image; FastAPI serves the built UI at `/`
-  and the JSON API under `/api/*`. Same image works on Render, Fly, Railway,
-  Cloud Run, your own VM.
+- **Container** — single Docker image. FastAPI serves the built UI at `/`
+  and the JSON API under `/api/*`. Identical image runs on Render, Fly,
+  Railway, Cloud Run, or your own VM.
 - **Data** — 100% free RSS. No keys, no trials, no credit card.
 
 ## Repo layout
 
 ```
-Dockerfile              builds frontend, then copies into backend image
-render.yaml             Render blueprint (free tier, Docker)
+Dockerfile              two-stage build: Node frontend → Python backend
+render.yaml             Render blueprint (free Docker tier)
 backend/
   app/
-    agents/             heterogeneous agent implementations
-    services/           news ingestion + sentiment
-    simulation/         market, events, engine loop
-    routes/             FastAPI routers
-    main.py             app factory; serves static UI when present
+    agents/             base.py + 4 role-specific strategies + factory
+    services/           news_service.py, sentiment.py
+    simulation/         market.py, engine.py (Arena orchestrator)
+    routes/             FastAPI routers (news, agents, simulation)
+    config.py           tunables: tickers, tape length, defaults
+    main.py             app factory; mounts static UI when present
+  requirements.txt
 frontend/
   app/                  Next.js App Router pages
-  components/           dashboard widgets
-  lib/                  API client
+  components/           Header, NewsFeed, AgentPanel, MarketChart, EventPanel, HistoryPanel
+  lib/api.ts            typed API client; reads NEXT_PUBLIC_API_URL
   next.config.mjs       output: "export" → static site
-  vercel.json           Vercel project config
+  vercel.json           Vercel project config (static build, framework=null)
 ```
 
 ## Deploy
 
-### Option A — one-click Render (full app, single URL)
+### Render — full app, single URL
 
-1. Click **Deploy to Render** above.
-2. Sign in with GitHub (free, no card). Render reads `render.yaml`, builds the
-   `Dockerfile`, gives you `https://agent-arena-<hash>.onrender.com`.
-3. Open that URL — backend + dashboard are both there.
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Akul321/Agent-Arena)
 
-### Option B — split deploy (Vercel UI + Render backend)
+Click the button, sign in with GitHub, accept the blueprint. Render reads
+`render.yaml`, builds the `Dockerfile`, gives you one URL hosting both API
+and dashboard. ~5 minutes to first deploy.
 
-Faster UI delivery (Vercel CDN), API still on Render.
+### Vercel — UI only, talks to the Render backend
 
-1. **Backend on Render** — same as Option A. Note the resulting URL, e.g.
-   `https://agent-arena-api.onrender.com`.
-2. **Frontend on Vercel** — click **Deploy with Vercel** above. Vercel asks
-   for `NEXT_PUBLIC_API_URL`; paste the Render URL from step 1. Vercel sets
-   the root directory to `frontend/` automatically.
-3. Open the Vercel URL — it'll be `https://agent-arena-<hash>.vercel.app`.
+Manual import (recommended over the deploy button, which would clone the
+repo into your account):
 
-### Option C — Docker, anywhere
+1. Vercel → **Add New → Project → Import Git Repository** → pick this repo.
+2. Set **Root Directory** to `frontend`.
+3. Add env var `NEXT_PUBLIC_API_URL` = your Render URL (e.g.
+   `https://agent-arena-yl7l.onrender.com`).
+4. Deploy. Vercel serves the static export from `out/`.
+
+### Docker, anywhere
 
 ```bash
 docker build -t agent-arena .
@@ -103,7 +154,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-API on `http://localhost:8000` (interactive docs at `/docs`).
+API on `http://localhost:8000`, interactive docs at `/docs`.
 
 ### Frontend
 
@@ -113,34 +164,40 @@ npm install
 npm run dev
 ```
 
-Dashboard on `http://localhost:3000`. In dev it talks to the backend on port
-8000 by default. Override with `NEXT_PUBLIC_API_URL` if you moved it.
+Dashboard on `http://localhost:3000`. By default it talks to
+`http://localhost:8000`. Override with `NEXT_PUBLIC_API_URL`.
 
-## API surface
+## API
 
 | Method | Path                         | Purpose                                 |
 | ------ | ---------------------------- | --------------------------------------- |
 | GET    | `/api/news`                  | Latest RSS headlines + sentiment        |
-| GET    | `/api/news/refresh`          | Force a refresh                         |
-| GET    | `/api/news/top`              | Top N by computed impact                |
+| GET    | `/api/news/refresh`          | Force a refresh (bypass cache)          |
+| GET    | `/api/news/top?n=`           | Top N by computed impact                |
 | GET    | `/api/agents`                | List active agents + available roles    |
-| POST   | `/api/agents`                | Add an agent                            |
+| POST   | `/api/agents`                | Add an agent `{role, name?, risk?}`     |
 | DELETE | `/api/agents/{id}`           | Remove an agent                         |
 | POST   | `/api/simulation/event`      | Inject an event, get market+agent delta |
 | GET    | `/api/simulation/state`      | Current market state + tape             |
 | GET    | `/api/simulation/history`    | Past simulation runs                    |
 | POST   | `/api/simulation/reset`      | Reset the arena                         |
-| GET    | `/health`                    | Health check (used by container probes) |
+| GET    | `/health`                    | Liveness probe                          |
+
+## Configuration
+
+| Variable              | Where        | Default                                    | Effect |
+| --------------------- | ------------ | ------------------------------------------ | ------ |
+| `PORT`                | backend      | `8000`                                     | uvicorn bind port |
+| `NEXT_PUBLIC_API_URL` | frontend     | `http://localhost:8000` (dev), `""` (prod) | Backend base URL the UI calls |
+| `DEFAULT_TICKER`      | `config.py`  | `ARENA`                                    | Synthetic ticker label |
+| `DEFAULT_PRICE`       | `config.py`  | `100.0`                                    | Opening price |
+| `TAPE_MAX_LEN`        | `config.py`  | `500`                                      | Rolling tape length |
 
 ## Notes
 
-- SQLite lives at `backend/arena.db` and is created on first run. On Render's
-  free tier the disk is ephemeral, so history resets across deploys — fine
-  for a demo.
-- `feedparser` is the RSS layer; some upstreams occasionally rate-limit.
-  The service caches results for 2 minutes and gracefully ignores feed errors.
-- The sentiment scorer is deliberately lightweight (lexicon + finance
-  bigrams). Strong enough to move the simulation; not a substitute for an
-  LLM if you want nuance.
-- Vercel-hosted UI relies on the Render backend allowing CORS — the FastAPI
-  app sets `allow_origins=["*"]`, so it works out of the box.
+- SQLite lives at `backend/arena.db` and is created on first run. Render's
+  free disk is ephemeral, so history resets across deploys — fine for a demo.
+- `feedparser` upstreams occasionally rate-limit. The service caches for
+  2 minutes and ignores feed errors silently rather than failing the page.
+- The FastAPI app sets `allow_origins=["*"]`, so a Vercel-hosted UI can
+  call the Render backend without further config.
