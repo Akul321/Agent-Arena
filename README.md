@@ -16,10 +16,7 @@ news (RSS) ──► sentiment ──► event bus ──► agents ──► or
 ## Live demo
 
 After clicking the button above, Render builds the Docker image and gives you
-a public URL like `https://agent-arena.onrender.com`. The free tier sleeps
-after ~15 minutes of inactivity — the first request after a sleep takes a few
-seconds to wake. No credit card required.
-
+a public URL like `https://agent-arena.onrender.com`. 
 ## What you can do
 
 - Pull live headlines from free RSS feeds (Yahoo Finance, Google News, CNBC),
