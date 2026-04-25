@@ -1,11 +1,22 @@
 # Agent Arena
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Akul321/Agent-Arena)
+> Multi-agent market simulation. Heterogeneous agents — retail traders, hedge
+> funds, quants, a central bank — react to live financial news and to each
+> other inside a simulated market, producing prices, sentiment and narratives
+> you can watch unfold in real time.
 
-AI-powered multi-agent simulation platform. Heterogeneous agents — retail
-traders, hedge funds, quants, a central bank — react to live financial news
-and to each other inside a simulated market, producing prices, sentiment and
-narratives you can watch unfold in real time.
+## 🚀 Live demo
+
+| Host | What lives there | URL |
+| ---- | ---------------- | --- |
+| Render (full app) | Backend + UI in one container | <!-- RENDER_URL --> _add after first deploy_ |
+| Vercel (UI only)  | Frontend, talking to the Render backend | <!-- VERCEL_URL --> _add after first deploy_ |
+
+Click either button below to spin up your own copy. No credit card, no keys.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Akul321/Agent-Arena)
+&nbsp;
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAkul321%2FAgent-Arena&root-directory=frontend&project-name=agent-arena&env=NEXT_PUBLIC_API_URL&envDescription=URL%20of%20the%20Agent%20Arena%20backend%20(Render)&envLink=https%3A%2F%2Fgithub.com%2FAkul321%2FAgent-Arena%23deploy)
 
 ```
 news (RSS) ──► sentiment ──► event bus ──► agents ──► orders ──► market ──► tape
@@ -13,10 +24,6 @@ news (RSS) ──► sentiment ──► event bus ──► agents ──► or
                                    └────────────── feedback ◄───────┘
 ```
 
-## Live demo
-
-After clicking the button above, Render builds the Docker image and gives you
-a public URL like `https://agent-arena.onrender.com`. 
 ## What you can do
 
 - Pull live headlines from free RSS feeds (Yahoo Finance, Google News, CNBC),
@@ -33,7 +40,8 @@ a public URL like `https://agent-arena.onrender.com`.
 - **Backend** — Python 3.11, FastAPI, SQLite, `feedparser`, `httpx`.
 - **Frontend** — Next.js 14 (App Router, static export), TailwindCSS, Recharts.
 - **Packaging** — single Docker image; FastAPI serves the built UI at `/`
-  and the JSON API under `/api/*`.
+  and the JSON API under `/api/*`. Same image works on Render, Fly, Railway,
+  Cloud Run, your own VM.
 - **Data** — 100% free RSS. No keys, no trials, no credit card.
 
 ## Repo layout
@@ -53,38 +61,36 @@ frontend/
   components/           dashboard widgets
   lib/                  API client
   next.config.mjs       output: "export" → static site
+  vercel.json           Vercel project config
 ```
 
 ## Deploy
 
-### Option A — one-click on Render (recommended)
+### Option A — one-click Render (full app, single URL)
 
-1. Click the **Deploy to Render** button above (or push your fork to GitHub
-   and create a new Web Service from the blueprint).
-2. Render reads `render.yaml`, builds the `Dockerfile`, and exposes
-   `https://<service>.onrender.com`.
-3. Open the URL — backend + dashboard are both there.
+1. Click **Deploy to Render** above.
+2. Sign in with GitHub (free, no card). Render reads `render.yaml`, builds the
+   `Dockerfile`, gives you `https://agent-arena-<hash>.onrender.com`.
+3. Open that URL — backend + dashboard are both there.
 
-### Option B — Docker, anywhere
+### Option B — split deploy (Vercel UI + Render backend)
+
+Faster UI delivery (Vercel CDN), API still on Render.
+
+1. **Backend on Render** — same as Option A. Note the resulting URL, e.g.
+   `https://agent-arena-api.onrender.com`.
+2. **Frontend on Vercel** — click **Deploy with Vercel** above. Vercel asks
+   for `NEXT_PUBLIC_API_URL`; paste the Render URL from step 1. Vercel sets
+   the root directory to `frontend/` automatically.
+3. Open the Vercel URL — it'll be `https://agent-arena-<hash>.vercel.app`.
+
+### Option C — Docker, anywhere
 
 ```bash
 docker build -t agent-arena .
 docker run --rm -p 8000:8000 agent-arena
 # open http://localhost:8000
 ```
-
-Works on Fly.io, Railway, Google Cloud Run, your own VM — anywhere that
-runs containers and exposes one port.
-
-### Option C — split deploy (Vercel + Render)
-
-If you'd rather host the UI on Vercel and the API on Render:
-
-1. Deploy `backend/` only to Render (point its blueprint at `backend/Dockerfile`,
-   or write a thin `render.yaml`).
-2. Set `NEXT_PUBLIC_API_URL=https://your-backend.onrender.com` in Vercel's
-   project env.
-3. Deploy `frontend/` to Vercel.
 
 ## Local development
 
@@ -136,3 +142,5 @@ Dashboard on `http://localhost:3000`. In dev it talks to the backend on port
 - The sentiment scorer is deliberately lightweight (lexicon + finance
   bigrams). Strong enough to move the simulation; not a substitute for an
   LLM if you want nuance.
+- Vercel-hosted UI relies on the Render backend allowing CORS — the FastAPI
+  app sets `allow_origins=["*"]`, so it works out of the box.
