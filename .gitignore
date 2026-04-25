@@ -27,6 +27,9 @@ build/
 *.sqlite
 *.sqlite3
 
+# Built frontend bundle that gets baked into the backend image at build time
+backend/app/static/
+
 # OS / editor
 .DS_Store
 .vscode/

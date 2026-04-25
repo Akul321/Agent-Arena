@@ -1,5 +1,14 @@
+// In the single-container deploy the backend also serves the UI, so API
+// calls are relative. In dev (`next dev`) the backend lives on port 8000,
+// so default to that. Override explicitly with NEXT_PUBLIC_API_URL for
+// split deploys (e.g. Vercel frontend + Render backend).
+const envBase = process.env.NEXT_PUBLIC_API_URL;
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  envBase !== undefined
+    ? envBase
+    : process.env.NODE_ENV === "development"
+      ? "http://localhost:8000"
+      : "";
 
 export type Sentiment = {
   score: number;
